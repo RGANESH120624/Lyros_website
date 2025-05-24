@@ -88,7 +88,7 @@ def main():
         st.button("Back", on_click=lambda: st.session_state.update({"page": "home"}))
 
     elif st.session_state.page == "login":
-        st.header("🔓 Login")
+        st.header("Login")
         email = st.text_input("Email")
         password = st.text_input("Password", type="password")
 
