@@ -1,14 +1,14 @@
 import streamlit as st
 from supabase import create_client, Client
-import time
+from gotrue.errors import AuthApiError
 
 # --- Supabase Configuration ---
 SUPABASE_URL = "https://mtsezzuxftuxfsjxgyoz.supabase.co"   # Replace with your Supabase URL
-SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im10c2V6enV4ZnR1eGZzanhneW96Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0Nzk4NTI0MCwiZXhwIjoyMDYzNTYxMjQwfQ.IvN-sRroTnD5X94HZ2KwOCBu6Yp95ss_Kkw1KIfvtvI"                      # Replace with your Supabase anon or service role key
+SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im10c2V6enV4ZnR1eGZzanhneW96Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0Nzk4NTI0MCwiZXhwIjoyMDYzNTYxMjQwfQ.IvN-sRroTnD5X94HZ2KwOCBu6Yp95ss_Kkw1KIfvtvI"
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# --- Ensure 'users' table exists ---
+# --- Ensure 'users' table exists via RPC ---
 def ensure_table_exists():
     query = """
     create table if not exists users (
@@ -17,34 +17,41 @@ def ensure_table_exists():
         created_at timestamp with time zone default timezone('utc'::text, now())
     );
     """
-    supabase.rpc("execute_sql", {"sql": query})
+    try:
+        supabase.rpc("execute_sql", {"sql": query}).execute()
+    except Exception as e:
+        st.warning(f"Table creation check failed: {e}")
 
 # --- Create user with email verification ---
 def create_user_with_email_verification(email, password, username):
-    response = supabase.auth.sign_up(
-        {
-            "email": email,
-            "password": password
-        }
-    )
-    if "user" in response and response["user"] is not None:
-        user_id = response["user"]["id"]
-        supabase.table("users").insert({"id": user_id, "username": username}).execute()
-        return True, "📩 Check your email for verification."
-    elif "error" in response:
-        return False, response["error"]["message"]
-    return False, "Unknown error."
+    try:
+        response = supabase.auth.sign_up({"email": email, "password": password})
+        if response.user:
+            user_id = response.user.id
+            supabase.table("users").insert({"id": user_id, "username": username}).execute()
+            return True, "📩 Check your email for verification."
+        else:
+            return False, "Sign-up failed."
+    except AuthApiError as e:
+        return False, str(e)
+    except Exception as e:
+        return False, f"Unexpected error: {str(e)}"
 
 # --- Login user ---
 def login_user(email, password):
-    result = supabase.auth.sign_in_with_password({"email": email, "password": password})
-    user = result.get("user", None)
-    if user and user.get("email_confirmed_at", None):
-        return True, user
-    elif user:
-        return False, "❌ Email not verified. Please verify your email before logging in."
-    else:
-        return False, result.get("error", {}).get("message", "Login failed.")
+    try:
+        result = supabase.auth.sign_in_with_password({"email": email, "password": password})
+        user = result.user
+        if user and user.email_confirmed_at:
+            return True, user
+        elif user:
+            return False, "❌ Email not verified. Please verify your email before logging in."
+        else:
+            return False, "Login failed."
+    except AuthApiError as e:
+        return False, str(e)
+    except Exception as e:
+        return False, f"Unexpected error: {str(e)}"
 
 # --- Streamlit App ---
 def main():
@@ -81,7 +88,6 @@ def main():
                 if success:
                     st.success(message)
                     st.info("Return to login after email verification.")
-                    st.button("Back to Home", on_click=lambda: st.session_state.update({"page": "home"}))
                 else:
                     st.error(message)
 
@@ -107,7 +113,7 @@ def main():
         st.button("Back", on_click=lambda: st.session_state.update({"page": "home"}))
 
     elif st.session_state.page == "dashboard":
-        st.success(f"Welcome, {st.session_state.user.get('email')}")
+        st.success(f"Welcome, {st.session_state.user.email}")
         st.write("🎉 You are verified and logged in.")
         if st.button("Logout"):
             supabase.auth.sign_out()
