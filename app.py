@@ -1,4 +1,3 @@
-##hello 
 import streamlit as st
 from supabase import create_client, Client
 
@@ -13,7 +12,6 @@ def ensure_users_table():
     try:
         response = supabase.table("users").select("*").limit(1).execute()
     except Exception:
-        # Attempt to create the table if it doesn't exist
         query = """
         create table if not exists public.users (
             id uuid primary key references auth.users(id) on delete cascade,
@@ -23,7 +21,7 @@ def ensure_users_table():
         """
         supabase.rpc("execute_sql", {"sql": query}).execute()
 
-# --- Sign up user (no DB insert here) ---
+# --- Sign up with email verification ---
 def create_user_with_email_verification(email, password):
     response = supabase.auth.sign_up({
         "email": email,
@@ -36,7 +34,7 @@ def create_user_with_email_verification(email, password):
         return False, response["error"]["message"]
     return False, "Unknown error."
 
-# --- Login user and insert into 'users' table if verified and new ---
+# --- Login user and insert into 'users' table if verified ---
 def login_user(email, password):
     result = supabase.auth.sign_in_with_password({"email": email, "password": password})
     user = result.get("user", None)
@@ -45,7 +43,6 @@ def login_user(email, password):
         user_id = user["id"]
         username = email.split("@")[0]
 
-        # Check if user exists in 'users' table
         existing = supabase.table("users").select("id").eq("id", user_id).execute()
         if not existing.data:
             supabase.table("users").insert({"id": user_id, "username": username}).execute()
@@ -58,7 +55,7 @@ def login_user(email, password):
 
 # --- Streamlit App ---
 def main():
-    st.set_page_config(page_title="Secure Login", layout="centered")
+    st.set_page_config(page_title="Login App", layout="centered")
     ensure_users_table()
 
     if "page" not in st.session_state:
